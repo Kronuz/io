@@ -4,6 +4,11 @@
 single process-wide flag; the value is entirely in the retry / short-count / safety
 policy each wrapper applies. Read this before changing a wrapper.
 
+![io: the wrapper core and its three optional host seams](assets/architecture.svg)
+
+<!-- Diagram: assets/architecture.svg. Edit the D2 source below and re-render with:
+     d2 --theme 0 --pad 20 <this-source>.d2 assets/architecture.svg
+
 ```d2
 # io: the wrapper core and its three optional host seams.
 direction: down
@@ -26,6 +31,7 @@ core.retry -> seams.rnd: "before each op" { style.stroke-dash: 3 }
 core -> seams.trace: "on error" { style.stroke-dash: 3 }
 core -> seams.chk: "on open/close" { style.stroke-dash: 3 }
 ```
+-->
 
 ## Dependencies
 
