@@ -4,6 +4,37 @@
 single process-wide flag; the value is entirely in the retry / short-count / safety
 policy each wrapper applies. Read this before changing a wrapper.
 
+```d2
+# io: the wrapper core and its three optional host seams.
+direction: down
+caller: "caller\n(io::read / write / open / socket ...)" { style.fill: "#e8f5ee" }
+core: "io wrapper" {
+  style.fill: "#eef2f7"
+  retry: "RetryAfterSignal\n(loop while EINTR && ignore_eintr())"
+  sys: "::syscall\n(full-count read/write, safe fds, O_CLOEXEC)"
+  retry -> sys
+}
+seams: "optional host seams (compile-time -D; no-op / off by default)" {
+  style.fill: "#faf3e6"
+  grid-columns: 3
+  trace: "IO_TRACE_HEADER\n(L_* logging + error::)"
+  rnd: "IO_RANDOM_ERRORS_HEADER\n(fault injection)"
+  chk: "IO_CHECK_FDES\n(fd-state tracker)"
+}
+caller -> core
+core.retry -> seams.rnd: "before each op" { style.stroke-dash: 3 }
+core -> seams.trace: "on error" { style.stroke-dash: 3 }
+core -> seams.chk: "on open/close" { style.stroke-dash: 3 }
+```
+
+## Dependencies
+
+**None** when built standalone — `io` compiles against nothing but the C++ standard
+library and the POSIX headers. `likely.h` is vendored. The three seams are the only way
+a host facility enters the picture, and only on opt-in: `IO_TRACE_HEADER` pulls the
+host's logger + `error::` strings, `IO_RANDOM_ERRORS_HEADER` its PRNG/config, and
+`IO_CHECK_FDES` a traceback library. With the defaults, none of those are referenced.
+
 ## Files
 
 ```
