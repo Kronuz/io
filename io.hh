@@ -74,6 +74,20 @@
 #    define IO_HAVE_POSIX_FALLOCATE 1
 #  endif
 #endif
+#if defined(__FreeBSD__)
+// FreeBSD provides these POSIX calls natively (unlike the Linux-only fallocate),
+// so use them instead of the no-op fallback -- which would also redefine the
+// POSIX_FADV_* macros that FreeBSD's <fcntl.h> already defines.
+#  ifndef IO_HAVE_FDATASYNC
+#    define IO_HAVE_FDATASYNC 1
+#  endif
+#  ifndef IO_HAVE_POSIX_FADVISE
+#    define IO_HAVE_POSIX_FADVISE 1
+#  endif
+#  ifndef IO_HAVE_POSIX_FALLOCATE
+#    define IO_HAVE_POSIX_FALLOCATE 1
+#  endif
+#endif
 
 
 // Fault-injection seam. A host that wants random IO/network errors (for resiliency
