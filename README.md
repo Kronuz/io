@@ -1,5 +1,7 @@
 # io
 
+[![CI](https://github.com/Kronuz/io/actions/workflows/ci.yml/badge.svg)](https://github.com/Kronuz/io/actions/workflows/ci.yml)
+
 An EINTR-safe POSIX file and socket layer, extracted verbatim from
 [Xapiand](https://github.com/Kronuz/Xapiand).
 
