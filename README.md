@@ -1,79 +1,95 @@
 # io
 
 [![CI](https://github.com/Kronuz/io/actions/workflows/ci.yml/badge.svg)](https://github.com/Kronuz/io/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 
-An EINTR-safe POSIX file and socket layer, extracted verbatim from
-[Xapiand](https://github.com/Kronuz/Xapiand).
+POSIX file and socket calls that do what a storage engine means, in C++20. Each
+`io::` function mirrors the syscall of the same name, and retries on `EINTR`, loops
+until the full count is transferred, and keeps data files off fds 0, 1, and 2.
 
-Every function in the `io::` namespace mirrors a `::syscall` of the same name but
-adds the retry and short-count handling a storage/network engine actually needs,
-so call sites never have to open-code an `EINTR` loop or a partial-write loop
-again.
+![io: io:: calls wrap the syscalls with retry, full-count loops, and optional seams](assets/architecture.svg)
+
+## ✨ Highlights
+
+- 🔁 **`EINTR` retry** for `read`, `write`, `send`, `recv`, `accept`, `connect`,
+  `fsync`, and more. `close` deliberately never retries, since that can close a
+  reused fd.
+- 📏 **Full-count I/O**: `read`, `write`, and `pwrite` loop until the whole buffer
+  moves, and return short only on a real error.
+- 🛡️ **Safe descriptors**: `open()` sets `O_CLOEXEC` and never returns stdin, stdout,
+  or stderr.
+- 💾 **Durability that means it**: `fdatasync` on Linux, `F_FULLFSYNC` on macOS, and a
+  portable `fallocate`.
+- 🪶 **No dependencies**: logging, fault injection, and fd tracking are optional seams.
+
+## 📦 Installation
+
+Requires a C++20 compiler, a POSIX system, and CMake 3.14 or newer. CI builds it on
+Linux (x86_64, arm64), macOS (arm64, x86_64), and FreeBSD, plus ASan, UBSan, and TSan
+builds.
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(io
+  GIT_REPOSITORY https://github.com/Kronuz/io.git
+  GIT_TAG        main)
+FetchContent_MakeAvailable(io)
+
+target_link_libraries(my_app PRIVATE io::io)
+```
+
+## 🚀 Quick start
 
 ```cpp
 #include "io.hh"
 
-int fd = io::open("data.bin", O_RDWR | O_CREAT, 0644);   // never returns fd 0/1/2
-io::write(fd, buf, n);          // loops until all n bytes are written
-io::pread(fd, buf, n, offset);  // positional read
-io::fsync(fd);                  // durability (fdatasync where available)
-io::close(fd);                  // deliberately does NOT retry on EINTR
+#include <fcntl.h>
+
+int main() {
+	char buf[] = "hello";
+	int fd = io::open("data.bin", O_RDWR | O_CREAT, 0644);   // never 0, 1, or 2
+	io::write(fd, buf, sizeof buf);       // all of it, or an error
+	io::pread(fd, buf, sizeof buf, 0);    // positional read
+	io::fsync(fd);
+	io::close(fd);                        // no retry on EINTR, by design
+}
 ```
 
-## Why not just call the syscalls?
+## ⚙️ Configuration
 
-- **`EINTR` retry.** `read`/`write`/`send`/`recv`/`fcntl`/`accept`/`connect`/`fsync`
-  and friends run through `RetryAfterSignal`, which retries while `errno == EINTR`
-  and the process-wide `io::ignore_eintr()` flag is set. `close()` is the one
-  deliberate exception: retrying `close` on `EINTR` can double-close a reused fd,
-  so it never does.
-- **Full-count I/O.** `write`/`pwrite`/`read` loop until the whole buffer is
-  transferred, returning a short count only on a genuine error (matching the
-  in-tree engine's semantics). `pread` returns after one read (positional reads
-  don't have to fill the buffer).
-- **Safe fds.** `open()` refuses any descriptor below `IO_MINIMUM_FILE_DESCRIPTOR`
-  (default `STDERR_FILENO + 1`), so a data file never lands on stdin/stdout/stderr,
-  and sets `O_CLOEXEC`.
-- **Portable durability.** `fsync` uses `fdatasync` on Linux; `full_fsync` uses
-  `F_FULLFSYNC` on macOS for real on-platter durability. `fallocate` falls back to
-  `posix_fallocate` / `F_PREALLOCATE` / a ftruncate-and-touch emulation.
-
-## Standalone, with zero dependencies
-
-Feature detection is portable (no generated `config.h`), and the three host
-couplings are **optional header seams** that default to no-ops, so the library
-builds and links against nothing:
-
-| Seam | `-D` knob | Default | Purpose |
+| Seam | Define | Default | Purpose |
 | --- | --- | --- | --- |
-| Logging | `IO_TRACE_HEADER` | no-op (`io_trace.h`) | route `L_CALL`/`L_ERRNO`/`L_ERR` to your logger |
-| Fault injection | `IO_RANDOM_ERRORS_HEADER` | off | make ops randomly fail (resiliency testing) |
-| fd-state tracker | `IO_CHECK_FDES` | off | catch double-close / use-after-close in debug |
+| Logging | `IO_TRACE_HEADER` | no-op | route `L_CALL`, `L_ERRNO`, `L_ERR` to your logger |
+| Fault injection | `IO_RANDOM_ERRORS_HEADER` | off | fail operations at random, for resilience tests |
+| fd tracking | `IO_CHECK_FDES` | off | catch double-close and use-after-close |
+| Lowest fd | `IO_MINIMUM_FILE_DESCRIPTOR` | 3 | the smallest fd `open()` returns |
 
-Because `error::name(errno)`, `error::description(errno)`, `DEBUG_COL` and
-`traceback::` appear **only inside** those macros' arguments, the no-op expansion
-drops them unevaluated. That is what keeps the standalone build dependency-free:
-you only need an errno-names / traceback library if you opt into real logging or
-the fd tracker, and then it is *your* trace header that pulls them in.
+## 🎯 When to use it
 
-## Build / test
+- ✅ Storage and network code that must not lose writes to signals or short counts.
+- ❌ Non-POSIX targets: there is no Windows backend.
+
+## 📚 Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): each wrapper's semantics and how the seams stay
+  dependency-free.
+- [AGENTS.md](AGENTS.md): repository map and invariants.
+
+## 🛠️ Building and testing
 
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-ctest --test-dir build          # round-trip, offsets, durability, sockets, EINTR flag
-./build/io_bench                # io:: vs raw ::syscall throughput
+ctest --test-dir build
+./build/io_bench      # io:: against the raw syscalls
 ```
 
-## Using it
+## 🤝 Contributing
 
-Via CMake FetchContent, link the target (default no-op logging):
+Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) first. CI must
+pass on every platform.
 
-```cmake
-FetchContent_Declare(io GIT_REPOSITORY https://github.com/Kronuz/io.git GIT_TAG main)
-FetchContent_MakeAvailable(io)
-target_link_libraries(your_app PRIVATE io::io)
-```
+## 📄 License
 
-To route logging to your own logger, point `IO_TRACE_HEADER` at a header that
-defines `L_CALL` / `L_ERRNO` / `L_ERR` (and whatever `error::` / `traceback::` they
-reference), and compile `io.cc` with that define. See `ARCHITECTURE.md`.
+MIT, Copyright (c) 2015-2019 Dubalu LLC. See [LICENSE](LICENSE). Extracted from
+[Xapiand](https://github.com/Kronuz/Xapiand).
