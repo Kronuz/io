@@ -53,14 +53,47 @@ only pulls in an errno-names / traceback library if it opts into real logging or
   `IO_HAVE_*` guarded by a platform/feature macro, mirroring the table in
   `ARCHITECTURE.md`.
 
-## Build / test
+## Verification and benchmarks
+
+The shared method is the catalog's
+[PERFORMANCE.md](https://github.com/Kronuz/cpp-libraries/blob/main/docs/PERFORMANCE.md). From a
+fresh clone:
 
 ```sh
-cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-ctest --test-dir build && ./build/io_bench
-# sanitizers (Homebrew LLVM):
-cmake -B build-asan -DCMAKE_CXX_FLAGS="-fsanitize=address -g" && cmake --build build-asan && ./build-asan/io_test
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build && ctest --test-dir build --output-on-failure
 ```
+
+- **Tests.** `io` (`test/test.cc`): write/read round trips, offsets, durability calls, `fallocate`
+  size, `send`/`recv` over a socketpair, the `ignore_eintr` flag and `ignored_errno`. `io_pread`
+  (`test/pread_test.cc`) runs `io::pread` over a real file through a `pread` that
+  `test/pread_interpose.cc` puts in place of the C library's: 1, 7, 100 and 999 bytes per call, an
+  offset inside the file, a buffer past its end, `EINTR` retried and not, `EIO` early and late.
+- **Revert and mutant.** With the `io.cc` from before the pread loop
+  (`git show 6524ce0^:io.cc > io.cc`), `io_pread` fails on the first short read; deleting
+  `offset += c;` from `io::pread` fails its offset checks. Restore with `git checkout io.cc`. No
+  mutation script, differential test, fuzz target or `docs/perf` note lives here.
+- **CI.** `.github/workflows/ci.yml` calls the catalog's shared
+  [`cmake.yml`](https://github.com/Kronuz/cpp-libraries/blob/main/.github/workflows/cmake.yml):
+  Linux x86_64 (GCC, Clang) and arm64 (GCC), macOS arm64 and x86_64, and FreeBSD, at `-O2 -g` with
+  the standard library's assertions on, plus ASan+UBSan and TSan jobs. The ASan+UBSan job, on Linux:
+
+  ```sh
+  CC=clang CXX=clang++ cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug \
+    "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS" \
+    -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+  cmake --build build-asan && ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build-asan --output-on-failure
+  ```
+
+- **Benchmark.** `io_bench` (`examples/bench.cc`) builds with the tests, with no option and
+  nothing fetched. `./build/io_bench [MiB] [KiB]` (default 128 MiB in 64 KiB chunks) writes,
+  `fsync`s and reads `/tmp/io_bench.dat` through `io::` and through the raw syscalls, its
+  comparator, in MB/s; the write column includes the disk. To compare two commits, build it in both
+  checkouts and run them A/B/A with [cpp-libraries](https://github.com/Kronuz/cpp-libraries)'
+  `tools/ab_compare.py` (`read` for the other column):
+
+  ```sh
+  python3 ab_compare.py run --rounds 7 --higher-better --regex '(?P<row>io::|raw ::) .*write +(?P<value>[0-9.]+) MB/s' build-a/io_bench build-b/io_bench
+  ```
 
 ## Host integration (how Xapiand uses it)
 
