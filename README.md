@@ -16,8 +16,9 @@ storage and network code that must not lose a write to a signal or a short count
 - **`EINTR` retry.** `read`, `write`, `send`, `recv`, `sendto`, `recvfrom`, `accept`,
   `connect`, `fcntl`, `fsync` and `fallocate` retry while `io::ignore_eintr()` is set.
   `close` never retries, since a retry can close a reused fd.
-- **Full-count I/O.** `read`, `write` and `pwrite` loop until the whole buffer moves and
-  return short only on an error; `pread` returns after one positional read.
+- **Full-count I/O.** `read`, `write`, `pread` and `pwrite` loop until the whole buffer
+  moves; they return short at the end of the file (the reads) or on an error, with the
+  bytes moved so far.
 - **Safe descriptors.** `open()` sets `O_CLOEXEC` and never returns stdin, stdout or
   stderr.
 - **Durability.** `fsync` calls `fdatasync` where the platform has it, `full_fsync` uses
@@ -39,7 +40,7 @@ int main() {
 	io::write(fd, "hello", 5);                       // all five bytes, or an error
 	io::fsync(fd);
 	char buf[5];
-	ssize_t n = io::pread(fd, buf, sizeof buf, 0);   // one positional read
+	ssize_t n = io::pread(fd, buf, sizeof buf, 0);   // all five bytes, or fewer at the end of the file
 	std::printf("%d %.*s\n", fd > 2, int(n), buf);   // 1 hello
 	io::close(fd);                                   // one ::close, never retried
 }
@@ -84,7 +85,6 @@ Not for:
 - **Non-POSIX targets.** There is no Windows backend.
 - **Asynchronous I/O.** The wrappers are plain synchronous syscalls; readiness and
   completion belong to your event loop.
-- **Full-count positional reads.** `pread` can return short, and the caller loops.
 
 ## 📚 Documentation
 

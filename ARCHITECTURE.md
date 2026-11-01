@@ -71,11 +71,11 @@ issues exactly one `::close` and never retries.
 
 ## Full-count vs positional
 
-`write` / `pwrite` / `read` loop until the whole buffer is transferred and return
+`write` / `pwrite` / `read` / `pread` loop until the whole buffer is transferred and return
 the total; a mid-transfer error returns the bytes done so far (or `-1` if nothing
-was written/read). `pread` intentionally returns after a single `::pread` -- a
-positional read is allowed to come up short, and the storage engine that uses it
-handles that.
+was written/read), and a read stops at the end of the file with the bytes read (`0` at or
+past it). `pread` advances its offset by each count it gets back, so a positional read that
+the kernel cuts short (a signal, the per-call cap of a huge buffer) still fills the buffer.
 
 ## The three seams
 
@@ -118,9 +118,10 @@ A host may pre-define any `IO_HAVE_*` to override the platform guess.
 
 ## Invariants
 
-- **Verbatim behavior.** The wrapper logic is byte-for-byte from Xapiand's in-tree
-  `io.cc`/`io.hh`. Do not change the retry conditions, the short-count rules, or
-  the `open()` minimum-fd / `O_CLOEXEC` handling without a deliberate reason.
+- **Behavior from Xapiand.** The wrapper logic comes from Xapiand's in-tree
+  `io.cc`/`io.hh`. Do not change the retry conditions, the short-count rules (`pread`
+  loops to the full count), or the `open()` minimum-fd / `O_CLOEXEC` handling without a
+  deliberate reason.
 - **No new hard dependencies.** Keep the standalone build dependency-free; if a
   wrapper needs a host facility, add (or extend) a seam, don't `#include` the host.
 - **`close()` never retries.** See above.

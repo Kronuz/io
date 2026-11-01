@@ -4,7 +4,7 @@ Orientation for anyone (human or agent) working on this library.
 
 ## What this is
 
-An EINTR-safe POSIX file/socket layer extracted verbatim from Xapiand. One
+An EINTR-safe POSIX file/socket layer extracted from Xapiand. One
 compiled unit (`io.cc`) plus a header (`io.hh`). It is pure syscall-wrapping
 policy: retry-on-`EINTR`, full-count read/write, safe fds, portable durability.
 Read `ARCHITECTURE.md` before touching a wrapper.
@@ -20,6 +20,9 @@ io_trace.h   No-op L_* logging defaults (redirect via IO_TRACE_HEADER).
 likely.h     Vendored likely()/unlikely().
 test/test.cc      ctest: round-trip, offsets, durability, fallocate size,
                   socketpair send/recv, the ignore_eintr flag, ignored_errno.
+test/pread_test.cc, test/pread_interpose.cc
+                  ctest "io_pread": io::pread over a pread that returns a few bytes at a
+                  time, is interrupted, or fails (the interposer replaces the C library's).
 examples/bench.cc Runnable throughput benchmark (io:: vs raw ::syscall).
 ```
 
@@ -32,10 +35,11 @@ only pulls in an errno-names / traceback library if it opts into real logging or
 
 ## Conventions / invariants
 
-- **Verbatim behavior.** The engine logic is byte-for-byte from Xapiand's in-tree
-  `io.*`. Do not change retry conditions, short-count rules, the `open()`
-  minimum-fd / `O_CLOEXEC` handling, or `pread`'s single-read semantics without a
-  deliberate reason.
+- **Behavior from Xapiand.** The engine logic comes from Xapiand's in-tree `io.*`. Do not
+  change retry conditions, short-count rules, the `open()` minimum-fd / `O_CLOEXEC`
+  handling, or `pread`'s loop to the full count without a deliberate reason;
+  `test/pread_test.cc` replaces the C library's `pread` with one that returns a few
+  bytes at a time.
 - **`close()` never retries on `EINTR`** (a retried close can hit a reused fd).
   Leave it that way.
 - **Three seams, nothing else host-specific.** `IO_TRACE_HEADER` (logging),

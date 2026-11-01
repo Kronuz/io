@@ -33,6 +33,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 	target_link_libraries(io_test PRIVATE io)
 	add_test(NAME io COMMAND io_test)
 
+	# A pread that returns a few bytes at a time (pread_interpose.cc replaces the C library's):
+	# io::pread still fills the buffer.
+	add_executable(io_pread_test test/pread_test.cc test/pread_interpose.cc)
+	target_link_libraries(io_pread_test PRIVATE io ${CMAKE_DL_LIBS})
+	add_test(NAME io_pread COMMAND io_pread_test)
+
 	# A runnable benchmark (not a test): ./build/io_bench
 	add_executable(io_bench examples/bench.cc)
 	target_link_libraries(io_bench PRIVATE io)

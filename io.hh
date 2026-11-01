@@ -23,12 +23,13 @@
 
 #pragma once
 
-// io: an EINTR-safe POSIX file/socket layer, extracted verbatim from Xapiand.
+// io: an EINTR-safe POSIX file/socket layer, extracted from Xapiand.
 //
 // Every wrapper mirrors its ::syscall but adds the retry/short-count handling the
 // engine relies on: RetryAfterSignal loops on EINTR (gated by the process-wide
 // ignore_eintr() flag), read/write/pread/pwrite loop to the full byte count and
-// return a short count only on a genuine error, and open() refuses fds below
+// return a short count only at the end of the file (the reads) or on a genuine
+// error, and open() refuses fds below
 // IO_MINIMUM_FILE_DESCRIPTOR (so a database file never lands on 0/1/2).
 //
 // Standalone it has ZERO dependencies: feature detection is portable (below), and
@@ -201,6 +202,9 @@ int close(int fd) noexcept;
 ssize_t write(int fd, const void* buf, size_t nbyte) noexcept;
 ssize_t pwrite(int fd, const void* buf, size_t nbyte, off_t offset) noexcept;
 
+// read and pread return the bytes read: nbyte, or fewer at the end of the file (0 at or past it),
+// or the bytes read before an error (-1 when the first read fails). pread advances the offset
+// itself and leaves the file position of fd alone where the platform has pread.
 ssize_t read(int fd, void* buf, size_t nbyte) noexcept;
 ssize_t pread(int fd, void* buf, size_t nbyte, off_t offset) noexcept;
 

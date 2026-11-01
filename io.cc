@@ -236,14 +236,12 @@ ssize_t pread(int fd, void* buf, size_t nbyte, off_t offset) noexcept {
 				return -1;
 			}
 			return read;
+		} else if unlikely(c == 0) {
+			break;  // end of file
 		}
 		p += c;
-		break; // read() doesn't have to read the whole nbytes
-		// if likely(c == static_cast<ssize_t>(nbyte)) {
-		// 	break;
-		// }
-		// nbyte -= c;
-		// offset += c;
+		nbyte -= c;
+		offset += c;
 	}
 	return p - static_cast<const char*>(buf);
 }
