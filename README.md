@@ -6,92 +6,111 @@ Part of [Kronuz C++ Libraries](https://github.com/Kronuz/cpp-libraries), a colle
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 
-POSIX file and socket calls that do what a storage engine means, in C++20. Each
-`io::` function mirrors the syscall of the same name, and retries on `EINTR`, loops
-until the full count is transferred, and keeps data files off fds 0, 1, and 2.
-
-![io: io:: calls wrap the syscalls with retry, full-count loops, and optional seams](assets/architecture.svg)
+EINTR-safe POSIX file and socket wrappers for C++20: full-count I/O, descriptors above stderr, portable durability.
+Each `io::` function mirrors the syscall of the same name and applies one policy: retry on
+`EINTR`, loop until the full count moves, keep data files off fds 0, 1 and 2. Reach for it in
+storage and network code that must not lose a write to a signal or a short count.
 
 ## ✨ Highlights
 
-- 🔁 **`EINTR` retry** for `read`, `write`, `send`, `recv`, `accept`, `connect`,
-  `fsync`, and more. `close` deliberately never retries, since that can close a
-  reused fd.
-- 📏 **Full-count I/O**: `read`, `write`, and `pwrite` loop until the whole buffer
-  moves, and return short only on a real error.
-- 🛡️ **Safe descriptors**: `open()` sets `O_CLOEXEC` and never returns stdin, stdout,
-  or stderr.
-- 💾 **Durability that means it**: `fdatasync` on Linux, `F_FULLFSYNC` on macOS, and a
-  portable `fallocate`.
-- 🪶 **No dependencies**: logging, fault injection, and fd tracking are optional seams.
-
-## 📦 Installation
-
-Requires a C++20 compiler, a POSIX system, and CMake 3.14 or newer. CI builds it on
-Linux (x86_64, arm64), macOS (arm64, x86_64), and FreeBSD, plus ASan, UBSan, and TSan
-builds.
-
-```cmake
-include(FetchContent)
-FetchContent_Declare(io
-  GIT_REPOSITORY https://github.com/Kronuz/io.git
-  GIT_TAG        main)
-FetchContent_MakeAvailable(io)
-
-target_link_libraries(my_app PRIVATE io::io)
-```
+- **`EINTR` retry.** `read`, `write`, `send`, `recv`, `sendto`, `recvfrom`, `accept`,
+  `connect`, `fcntl`, `fsync` and `fallocate` retry while `io::ignore_eintr()` is set.
+  `close` never retries, since a retry can close a reused fd.
+- **Full-count I/O.** `read`, `write` and `pwrite` loop until the whole buffer moves and
+  return short only on an error; `pread` returns after one positional read.
+- **Safe descriptors.** `open()` sets `O_CLOEXEC` and never returns stdin, stdout or
+  stderr.
+- **Durability.** `fsync` calls `fdatasync` where the platform has it, `full_fsync` uses
+  `F_FULLFSYNC` on macOS, and `fallocate` falls back to `posix_fallocate` or
+  `F_PREALLOCATE`.
+- **No dependencies.** Logging, fault injection and fd tracking are compile-time seams that
+  default to no-ops.
 
 ## 🚀 Quick start
 
 ```cpp
 #include "io.hh"
 
+#include <cstdio>
 #include <fcntl.h>
 
 int main() {
-	char buf[] = "hello";
-	int fd = io::open("data.bin", O_RDWR | O_CREAT, 0644);   // never 0, 1, or 2
-	io::write(fd, buf, sizeof buf);       // all of it, or an error
-	io::pread(fd, buf, sizeof buf, 0);    // positional read
+	int fd = io::open("data.bin", O_RDWR | O_CREAT | O_TRUNC, 0644);  // never 0, 1 or 2
+	io::write(fd, "hello", 5);                       // all five bytes, or an error
 	io::fsync(fd);
-	io::close(fd);                        // no retry on EINTR, by design
+	char buf[5];
+	ssize_t n = io::pread(fd, buf, sizeof buf, 0);   // one positional read
+	std::printf("%d %.*s\n", fd > 2, int(n), buf);   // 1 hello
+	io::close(fd);                                   // one ::close, never retried
 }
 ```
 
-## ⚙️ Configuration
+## 📦 Installation
 
-| Seam | Define | Default | Purpose |
-| --- | --- | --- | --- |
-| Logging | `IO_TRACE_HEADER` | no-op | route `L_CALL`, `L_ERRNO`, `L_ERR` to your logger |
-| Fault injection | `IO_RANDOM_ERRORS_HEADER` | off | fail operations at random, for resilience tests |
-| fd tracking | `IO_CHECK_FDES` | off | catch double-close and use-after-close |
-| Lowest fd | `IO_MINIMUM_FILE_DESCRIPTOR` | 3 | the smallest fd `open()` returns |
+Requires a C++20 compiler, a POSIX system, and CMake 3.16 or newer; it compiles one source
+file. CI builds it on Linux (x86_64, arm64), macOS (arm64, x86_64), and FreeBSD, plus ASan,
+UBSan, and TSan builds.
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(io
+  GIT_REPOSITORY https://github.com/Kronuz/io.git
+  GIT_TAG        3893d47fb416ead9b52db604d8b148ef24a6fef6)  # or main, to track the tip
+FetchContent_MakeAvailable(io)
+
+target_link_libraries(my_app PRIVATE io::io)
+```
+
+```cpp
+#include "io.hh"
+```
+
+A host wires its own facilities in with compile definitions:
+
+| Define | Default | Purpose |
+| --- | --- | --- |
+| `IO_TRACE_HEADER` | no-op | route `L_CALL`, `L_ERRNO` and `L_ERR` to your logger |
+| `IO_RANDOM_ERRORS_HEADER` | off | fail operations at random, for resilience tests |
+| `IO_CHECK_FDES` | off | catch double-close and use-after-close |
+| `IO_MINIMUM_FILE_DESCRIPTOR` | 3 | the smallest fd `open()` returns |
 
 ## 🎯 When to use it
 
-- ✅ Storage and network code that must not lose writes to signals or short counts.
-- ❌ Non-POSIX targets: there is no Windows backend.
+Use it for storage and network code that must not lose writes to signals or short counts,
+and that wants one place to hook logging and fault injection into every syscall.
+
+Not for:
+
+- **Non-POSIX targets.** There is no Windows backend.
+- **Asynchronous I/O.** The wrappers are plain synchronous syscalls; readiness and
+  completion belong to your event loop.
+- **Full-count positional reads.** `pread` can return short, and the caller loops.
 
 ## 📚 Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): each wrapper's semantics and how the seams stay
-  dependency-free.
+- [ARCHITECTURE.md](ARCHITECTURE.md): each wrapper's semantics, the retry model and how the
+  seams stay dependency-free.
+- [CHANGELOG.md](CHANGELOG.md): dated changes.
 - [AGENTS.md](AGENTS.md): repository map and invariants.
+- [Kronuz C++ Libraries](https://github.com/Kronuz/cpp-libraries): the catalog.
 
 ## 🛠️ Building and testing
 
 ```sh
-cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+cmake -B build
+cmake --build build
 ctest --test-dir build
-./build/io_bench      # io:: against the raw syscalls
 ```
+
+`./build/io_bench` times sequential writes and reads through `io::` and through the raw
+syscalls.
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) first. CI must
-pass on every platform.
+Read [AGENTS.md](AGENTS.md) and the [catalog's rules](https://github.com/Kronuz/cpp-libraries/blob/main/AGENTS.md)
+first.
 
 ## 📄 License
 
-MIT, Copyright (c) 2015-2019 Dubalu LLC. See [LICENSE](LICENSE). Extracted from
-[Xapiand](https://github.com/Kronuz/Xapiand).
+MIT, Copyright (c) 2026 Germán Méndez Bravo and (c) 2015-2020 Dubalu LLC. See
+[LICENSE](LICENSE). Extracted from [Xapiand](https://github.com/Kronuz/Xapiand).
