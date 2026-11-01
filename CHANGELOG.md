@@ -31,7 +31,8 @@ entries are dated.
   file (11 calls, ends at 1000 bytes, no loop on the 0), an offset at and past the end,
   `EINTR` retried and not retried, and `EIO` after some bytes and on the first call. With
   the old `io.cc` it fails on the first short read (`pread(fd, buf, 1000, 0)` returns 1,
-  7, 100 or 999) and on every case after; it passes with the loop.
+  7, 100 or 999) and on every case after; it passes with the loop. A loop that does not
+  advance the offset fails the offset checks.
 
 ### Changed
 
