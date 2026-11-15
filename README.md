@@ -88,6 +88,8 @@ Not for:
 
 ## 📚 Documentation
 
+- [The Syscalls That Lie](https://kronuz.github.io/blog/io/):
+  the Familiars post on why it exists and how it works.
 - [ARCHITECTURE.md](ARCHITECTURE.md): each wrapper's semantics, the retry model and how the
   seams stay dependency-free.
 - [CHANGELOG.md](CHANGELOG.md): dated changes.
